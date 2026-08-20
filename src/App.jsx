@@ -23,11 +23,13 @@ function App() {
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [isLogin, setIsLogin] = useState(true); // Toggle between login and sign up
+  const [isLogin, setIsLogin] = useState(true);
   const [loading, setLoading] = useState(false);
 
   // --- Tasks State ---
   const [taskText, setTaskText] = useState('');
+  const [taskDate, setTaskDate] = useState('');
+  const [taskTime, setTaskTime] = useState('');
   const [tasks, setTasks] = useState([]);
 
   // 1. Monitor authentication state
@@ -45,8 +47,6 @@ function App() {
       return;
     }
 
-    // Fetch only this user's tasks, ordered newest to oldest
-    // Fetch only this user's tasks (temporarily without orderBy)
     const q = query(
       collection(db, 'tasks'),
       where('userId', '==', user.uid),
@@ -64,7 +64,7 @@ function App() {
     return () => unsubscribe();
   }, [user]);
 
-  // --- Auth Functions (Login / Sign Up) ---
+  // --- Auth Functions ---
   const handleAuth = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -86,6 +86,30 @@ function App() {
     await signOut(auth);
   };
 
+  // --- Check if task is overdue ---
+  const isOverdue = (task) => {
+    if (!task.date || !task.time) return false;
+    const taskDateTime = new Date(`${task.date}T${task.time}`);
+    return taskDateTime < new Date() && !task.completed;
+  };
+
+  // --- Format date for display ---
+  const formatDate = (dateString) => {
+    if (!dateString) return '';
+    const options = { year: 'numeric', month: 'short', day: 'numeric' };
+    return new Date(dateString).toLocaleDateString('en-US', options);
+  };
+
+  // --- Format time for display ---
+  const formatTime = (timeString) => {
+    if (!timeString) return '';
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
   // --- Task Functions (CRUD) ---
   const handleAddTask = async () => {
     if (taskText.trim() === '' || !user) return;
@@ -95,10 +119,14 @@ function App() {
       await addDoc(collection(db, 'tasks'), {
         userId: user.uid,
         text: taskText,
+        date: taskDate,
+        time: taskTime,
         completed: false,
         createdAt: Date.now()
       });
       setTaskText('');
+      setTaskDate('');
+      setTaskTime('');
     } catch (error) {
       alert('Error adding task: ' + error.message);
     }
@@ -181,7 +209,7 @@ function App() {
 
   // --- UI: Tasks Dashboard ---
   return (
-    <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '440px', margin: 'auto', position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', width: '100%' }}>
+    <div style={{ padding: '20px', fontFamily: 'sans-serif', maxWidth: '600px', margin: 'auto', minHeight: '100vh' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2 style={{ margin: 0 }}>Quick Tasks Panel</h2>
         <button onClick={handleLogout} style={{ padding: '6px 12px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
@@ -190,50 +218,106 @@ function App() {
       </div>
       <p style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>Welcome, {user.email}</p>
 
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+      {/* Add Task Form */}
+      <div style={{ marginBottom: '30px', padding: '20px', backgroundColor: '#f8f9fa', borderRadius: '8px' }}>
+        <h3 style={{ marginTop: 0, marginBottom: '15px' }}>Add New Task</h3>
         <input
           type="text"
           placeholder="Write your new task"
           value={taskText}
           onChange={(e) => setTaskText(e.target.value)}
-          style={{ flex: '1', padding: '8px' }}
+          style={{ width: '100%', padding: '10px', marginBottom: '10px', boxSizing: 'border-box' }}
         />
-        <button onClick={handleAddTask} disabled={loading} style={{ padding: '8px 16px', cursor: 'pointer' }}>
-          {loading ? '...' : 'Add'}
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#666' }}>Date:</label>
+            <input
+              type="date"
+              value={taskDate}
+              onChange={(e) => setTaskDate(e.target.value)}
+              style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'block', marginBottom: '5px', fontSize: '14px', color: '#666' }}>Time:</label>
+            <input
+              type="time"
+              value={taskTime}
+              onChange={(e) => setTaskTime(e.target.value)}
+              style={{ width: '100%', padding: '8px', boxSizing: 'border-box' }}
+            />
+          </div>
+        </div>
+        <button
+          onClick={handleAddTask}
+          disabled={loading}
+          style={{ width: '100%', padding: '12px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '16px' }}
+        >
+          {loading ? 'Adding...' : 'Add Task'}
         </button>
       </div>
 
-      {tasks.map((task) => (
-        <div
-          key={task.id}
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            border: '1px solid #ccc',
-            padding: '12px',
-            marginBottom: '10px',
-            borderRadius: '6px',
-            backgroundColor: task.completed ? '#f0fdf4' : '#fff'
-          }}
-        >
-          <span style={{ textDecoration: task.completed ? 'line-through' : 'none', color: task.completed ? '#888' : '#000' }}>
-            {task.text}
-          </span>
+      {/* Tasks List */}
+      <div>
+        <h3 style={{ marginBottom: '15px' }}>Your Tasks ({tasks.length})</h3>
+        {tasks.length === 0 ? (
+          <p style={{ textAlign: 'center', color: '#999', padding: '40px' }}>No tasks yet. Add your first task above!</p>
+        ) : (
+          tasks.map((task) => {
+            const overdue = isOverdue(task);
+            return (
+              <div
+                key={task.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  border: '1px solid #ccc',
+                  padding: '15px',
+                  marginBottom: '10px',
+                  borderRadius: '6px',
+                  backgroundColor: task.completed ? '#f0fdf4' : (overdue ? '#fee2e2' : '#fff'),
+                  borderLeft: overdue ? '4px solid #dc3545' : '4px solid #28a745'
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <span style={{
+                    textDecoration: task.completed ? 'line-through' : 'none',
+                    color: task.completed ? '#888' : '#000',
+                    fontSize: '16px',
+                    display: 'block',
+                    marginBottom: '5px'
+                  }}>
+                    {task.text}
+                  </span>
+                  {(task.date || task.time) && (
+                    <span style={{
+                      fontSize: '12px',
+                      color: overdue ? '#dc3545' : '#666',
+                      fontWeight: overdue ? 'bold' : 'normal'
+                    }}>
+                      {formatDate(task.date)} {task.time && `⏰ ${formatTime(task.time)}`}
+                      {overdue && ' ⚠️ OVERDUE'}
+                    </span>
+                  )}
+                </div>
 
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <button onClick={() => handleToggleTask(task.id, task.completed)} style={{ padding: '4px 8px', color: 'black', cursor: 'pointer' }}>
-              {task.completed ? 'Undo' : 'Done'}
-            </button>
-            <button onClick={() => handleEditTask(task.id)} style={{ padding: '4px 8px', color: 'blue', cursor: 'pointer' }}>
-              Edit
-            </button>
-            <button onClick={() => handleDeleteTask(task.id)} style={{ padding: '4px 8px', color: 'red', cursor: 'pointer' }}>
-              Delete
-            </button>
-          </div>
-        </div>
-      ))}
+                <div style={{ display: 'flex', gap: '6px', marginLeft: '10px' }}>
+                  <button onClick={() => handleToggleTask(task.id, task.completed)} style={{ padding: '6px 10px', color: 'black', cursor: 'pointer', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#fff' }}>
+                    {task.completed ? '️Undo' : 'Done'}
+                  </button>
+                  <button onClick={() => handleEditTask(task.id)} style={{ padding: '6px 10px', color: 'blue', cursor: 'pointer', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#fff' }}>
+                    Edit
+                  </button>
+                  <button onClick={() => handleDeleteTask(task.id)} style={{ padding: '6px 10px', color: 'red', cursor: 'pointer', border: '1px solid #ccc', borderRadius: '4px', backgroundColor: '#fff' }}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }
